@@ -1,8 +1,6 @@
 package com.trinetx.core.messaging;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
@@ -10,6 +8,7 @@ import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.ImmutableMap;
 import com.rabbitmq.client.AMQP.BasicProperties;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
@@ -18,7 +17,6 @@ import com.rabbitmq.client.QueueingConsumer;
 import com.rabbitmq.client.QueueingConsumer.Delivery;
 import com.rabbitmq.client.ShutdownListener;
 import com.rabbitmq.client.ShutdownSignalException;
-import com.trinetx.utils.Hostname;
 
 /**
  * Created by Wai Cheng on 2/24/16.
@@ -29,7 +27,9 @@ public class RpcQueue {
             @Override
             public void shutdownCompleted(final ShutdownSignalException cause) {
                 s_Logger.info("====== RpcQueue: shutdown: " + cause.getMessage());
-                s_BusConnection = null;
+                listener.shutdown();
+                s_sendConnection = null;
+                s_receiveChannel = null;
             }
         };
 
@@ -37,8 +37,8 @@ public class RpcQueue {
 
     private String s_QueueName;
     private ConnectionFactory s_ConnectionFactory;
-    private Connection s_BusConnection = null;
-    private Channel s_Channel = null;
+    private Connection s_sendConnection, s_receiveConnection = null;
+    private Channel s_sendChannel, s_receiveChannel = null;
     private QueueingConsumer s_RequestConsumer, s_ResponseConsumer;
 
 	private ExecutorService listener = Executors.newSingleThreadExecutor();
@@ -48,9 +48,9 @@ public class RpcQueue {
     	this(queueName, 20);
 	}
 
-    public RpcQueue(String queueName, int processor) {
+    public RpcQueue(String queueName, int count) {
     	s_QueueName = queueName;
-    	processors = Executors.newFixedThreadPool(processor);
+    	processors = Executors.newFixedThreadPool(count);
     	init();
 	}
 
@@ -63,16 +63,16 @@ public class RpcQueue {
 
     public byte[] send(final byte[] data) throws Exception {
     	sendConnect();
-    	return call(data);
+    	return doSend(data);
     }
 
-    public void listen(Function<String,String> f) throws Exception {
+    public void receive(Function<String,String> f) throws Exception {
     	receiveConnect();
-    	receive(f);
+    	doReceive(f);
     }
 
-    private synchronized void sendConnect() throws IOException {
-        if (s_BusConnection != null) {
+    synchronized void sendConnect() throws IOException {
+        if (s_sendConnection != null) {
             // already connected
             return;
         }
@@ -83,28 +83,25 @@ public class RpcQueue {
         s_ConnectionFactory.setConnectionTimeout(2500);
 
         try {
-            s_BusConnection = s_ConnectionFactory.newConnection();
-            s_Channel = s_BusConnection.createChannel();
+        	s_sendConnection = s_ConnectionFactory.newConnection();
+            s_sendChannel = s_sendConnection.createChannel();
 
-            final Map<String, Object> queueHAPolicy = new HashMap<String, Object>();
-            queueHAPolicy.put("x-ha-policy", "all");
-
-            // create response queue and set as consumer
-            s_Channel.queueDeclare(getResponseQueueName(), false, false, false, queueHAPolicy); 
-            s_ResponseConsumer = new QueueingConsumer(s_Channel);
-            s_Channel.basicConsume(getResponseQueueName(), true, s_ResponseConsumer);
+            // create non-durable response queue and set as consumer
+            s_sendChannel.queueDeclare(getResponseQueueName(), false, false, false, ImmutableMap.of("x-ha-policy", "all")); 
+            s_ResponseConsumer = new QueueingConsumer(s_sendChannel);
+            s_sendChannel.basicConsume(getResponseQueueName(), true, s_ResponseConsumer);
             s_Logger.info("====== RpcQueue: send connected");
         }
         catch (final Exception e) {
             s_Logger.error("Connect: {}", e);
-            s_BusConnection = null;
+            s_sendConnection = null;
             throw e;
         }
-        s_BusConnection.addShutdownListener(s_ShutdownListener);
+        s_sendConnection.addShutdownListener(s_ShutdownListener);
     }
 
-    private synchronized void receiveConnect() throws IOException {
-        if (s_BusConnection != null) {
+    synchronized void receiveConnect() throws IOException {
+        if (s_receiveConnection != null) {
             // already connected
             return;
         }
@@ -115,25 +112,22 @@ public class RpcQueue {
         s_ConnectionFactory.setConnectionTimeout(2500);
 
         try {
-            s_BusConnection = s_ConnectionFactory.newConnection();
-            s_Channel = s_BusConnection.createChannel();
+        	s_receiveConnection = s_ConnectionFactory.newConnection();
+        	s_receiveChannel = s_receiveConnection.createChannel();
 
-            final Map<String, Object> queueHAPolicy = new HashMap<String, Object>();
-            queueHAPolicy.put("x-ha-policy", "all");
-
-            // create request queue and set as consumer
-            s_Channel.queueDeclare(getRequestQueueName(), false, false, false, queueHAPolicy); 
-            s_Channel.basicQos(1);
-            s_RequestConsumer = new QueueingConsumer(s_Channel);
-            s_Channel.basicConsume(getRequestQueueName(), false, s_RequestConsumer);
+            // create non-durable request queue and set as consumer
+        	s_receiveChannel.queueDeclare(getRequestQueueName(), false, false, false, ImmutableMap.of("x-ha-policy", "all")); 
+        	s_receiveChannel.basicQos(1);
+            s_RequestConsumer = new QueueingConsumer(s_receiveChannel);
+            s_receiveChannel.basicConsume(getRequestQueueName(), false, s_RequestConsumer);
             s_Logger.info("====== RpcQueue: receiver connected");
         }
         catch (final Exception e) {
             s_Logger.error("Connect: {}", e);
-            s_BusConnection = null;
+            s_receiveConnection = null;
             throw e;
         }
-        s_BusConnection.addShutdownListener(s_ShutdownListener);
+        s_receiveConnection.addShutdownListener(s_ShutdownListener);
     }
 
     private String getRequestQueueName() {
@@ -144,7 +138,7 @@ public class RpcQueue {
     	return RpcQueueSetting.getQueue(s_QueueName) + "_response_queue";
     }
     
-    private byte[] call(byte[] data) throws Exception {
+    private byte[] doSend(byte[] data) throws Exception {
 	    String corrId = java.util.UUID.randomUUID().toString();
 	
 	    BasicProperties props = new BasicProperties
@@ -153,7 +147,7 @@ public class RpcQueue {
 	                                .replyTo(getResponseQueueName())
 	                                .build();
 	
-	    s_Channel.basicPublish("", getRequestQueueName(), props, data);
+	    s_sendChannel.basicPublish("", getRequestQueueName(), props, data);
 	
 	    while (true) {
 	        Delivery delivery = s_ResponseConsumer.nextDelivery();
@@ -163,7 +157,7 @@ public class RpcQueue {
 	    }
     }
     
-    private void receive(Function<String,String> f) {
+    private void doReceive(Function<String,String> f) {
     	listener.execute(new Runnable() {
     	    public void run() {
     	    	while (true) {
@@ -180,8 +174,8 @@ public class RpcQueue {
 				
 					    	    String message = f.apply(new String(delivery.getBody()));
 					    	    try {
-									s_Channel.basicPublish("", props.getReplyTo(), replyProps, message.getBytes());
-						    	    s_Channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
+					    	    	s_receiveChannel.basicPublish("", props.getReplyTo(), replyProps, message.getBytes());
+					    	    	s_receiveChannel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
 								} catch (IOException e) {
 									// TODO Auto-generated catch block
 									e.printStackTrace();
@@ -194,9 +188,5 @@ public class RpcQueue {
     	    	}
     	    }
     	});
-    }
-    
-    public void stopListen() {
-    	listener.shutdown();
     }
 }
