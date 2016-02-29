@@ -1,9 +1,9 @@
 package com.trinetx.core.messaging;
 
+import java.util.Map;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.rabbitmq.client.ConnectionFactory;
-
-import java.util.Map;
 
 /**
  * Created by Wai Cheng on 2/25/16.
@@ -39,7 +39,7 @@ public class RpcQueueSetting {
 
     RpcQueueSetting() {
         /**
-         * Hack -- only one MsgBusSetting for each application
+         * Hack -- only one RpcQueueSetting for each application
          */
         s_Setting = this;
     }
@@ -72,4 +72,20 @@ public class RpcQueueSetting {
             return null;
         return queueId.isEmpty() ? queueId : s_Setting.Queues.get(queueId);
     }
+    
+    public static Map<String, String> getQueues() {
+    	return s_Setting.Queues;
+    }
+    /*
+     * Used only in unit test to perform what normally done by dropwizard
+     */
+    static void init(String host, int port, String user, String password, Map<String,String> queues) {
+    	s_Setting = new RpcQueueSetting();
+    	s_Setting.Host = host;
+    	s_Setting.Port = port;
+    	s_Setting.User = user;
+    	s_Setting.Password = password;
+    	s_Setting.Queues = queues;
+    }
+
 }

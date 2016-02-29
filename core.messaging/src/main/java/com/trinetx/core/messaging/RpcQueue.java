@@ -1,8 +1,11 @@
 package com.trinetx.core.messaging;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 import org.slf4j.Logger;
@@ -22,43 +25,59 @@ import com.rabbitmq.client.ShutdownSignalException;
  * Created by Wai Cheng on 2/24/16.
  */
 public class RpcQueue {
-	
-    private ShutdownListener s_ShutdownListener = new ShutdownListener() {
-            @Override
-            public void shutdownCompleted(final ShutdownSignalException cause) {
-                s_Logger.info("====== RpcQueue: shutdown: " + cause.getMessage());
-                listener.shutdown();
-                s_sendConnection = null;
-                s_receiveChannel = null;
-            }
-        };
+    private static Logger logger = LoggerFactory.getLogger(RpcQueue.class);;
+    private static final String TERM_SERVER_QUEUE_NAME = "termServerQueue";
+      
+    private static Map<String, RpcQueue> queues = new HashMap<String, RpcQueue>();
+    private static String queueName = "Unnamed_Queue";
+    private static ConnectionFactory connectionFactory;
+    private static Connection sendConnection = null;
+	private static Connection receiveConnection = null;
+    private static Channel sendChannel;
+	private static Channel receiveChannel = null;
+    private static QueueingConsumer requestConsumer;
+	private static QueueingConsumer responseConsumer;
 
-    private static Logger s_Logger = null;
+	// executor pool for handling received messages
+	private static ExecutorService listener = Executors.newSingleThreadExecutor();
+	private static ReceiveWorker worker ;
 
-    private String s_QueueName;
-    private ConnectionFactory s_ConnectionFactory;
-    private Connection s_sendConnection, s_receiveConnection = null;
-    private Channel s_sendChannel, s_receiveChannel = null;
-    private QueueingConsumer s_RequestConsumer, s_ResponseConsumer;
-
-	private ExecutorService listener = Executors.newSingleThreadExecutor();
-	private ExecutorService processors;
-
-    public RpcQueue(String queueName) {
-    	this(queueName, 20);
+	public static final RpcQueue getTermServerQueue() {
+		return getQueue(TERM_SERVER_QUEUE_NAME);
 	}
-
-    public RpcQueue(String queueName, int count) {
-    	s_QueueName = queueName;
-    	processors = Executors.newFixedThreadPool(count);
-    	init();
-	}
-
-	private void init() {
-        if (s_Logger == null) {
-            s_Logger = LoggerFactory.getLogger(RpcQueue.class);
+		
+    private static ShutdownListener s_sendShutdownListener = new ShutdownListener() {
+        @Override
+        public void shutdownCompleted(final ShutdownSignalException cause) {
+            logger.info("====== RpcQueue: rabbitMQ shutdown: " + cause.getMessage());
+    		asyncSendReconnect(5);
         }
+    };
+
+    private static ShutdownListener s_receiveShutdownListener = new ShutdownListener() {
+        @Override
+        public void shutdownCompleted(final ShutdownSignalException cause) {
+            logger.info("====== RpcQueue: rabbitMQ shutdown: " + cause.getMessage());
+    		asyncReceiveReconnect(5);
+        }
+    };
+
+    private RpcQueue(String name) {
+    	queueName = name;
+	}
+
+	public static void init() {
         RpcQueueSetting.init(Hostname.getMyName());
+
+        // instantiate connection factory
+        connectionFactory = new ConnectionFactory();
+        connectionFactory.setAutomaticRecoveryEnabled(true);
+        connectionFactory.setConnectionTimeout(30000);
+
+        // instantiate queues in RpcQueueSetting
+        RpcQueueSetting.getQueues().forEach((k,v)->{
+        	queues.put(k, new RpcQueue(k));
+        });
     }
 
     public byte[] send(final byte[] data) throws Exception {
@@ -71,74 +90,113 @@ public class RpcQueue {
     	doReceive(f);
     }
 
-    synchronized void sendConnect() throws IOException {
-        if (s_sendConnection != null) {
+    synchronized static void shutdown() throws IOException {
+    	
+    	shutdownSendConnection();
+    	shutdownReceiveConnection();
+    	shutdownListener();
+    	
+        logger.info("====== RpcQueue: shutdown");
+    }
+
+    synchronized static void shutdownSendConnection() {
+    	if (sendConnection != null) {
+    		try {
+    			sendConnection.removeShutdownListener(s_sendShutdownListener);
+    			sendChannel.close();
+				sendConnection.close();
+			} catch (IOException e) {
+				// ignore IOException as connection will be recreated
+			}
+        	sendConnection = null;
+    	}
+	}
+
+    synchronized static void shutdownReceiveConnection() {
+    	if (receiveConnection != null) {
+    		try {
+    			receiveConnection.removeShutdownListener(s_receiveShutdownListener);;
+    			receiveChannel.close();
+				receiveConnection.close();
+			} catch (IOException e) {
+				// ignore IOException as connection will be recreated
+			}
+    		receiveConnection = null;
+    	}
+	}
+
+    synchronized static void shutdownListener() {
+    	if (! listener.isShutdown()) {
+	        listener.shutdown();
+    	}
+    }
+    
+    synchronized static void sendConnect() {
+        if (sendConnection != null && sendConnection.isOpen()) {
             // already connected
             return;
         }
 
-        s_Logger.info("====== RpcQueue: send connecting");
-        s_ConnectionFactory = new ConnectionFactory();
-        RpcQueueSetting.apply(s_ConnectionFactory);
-        s_ConnectionFactory.setConnectionTimeout(2500);
+        logger.info("====== RpcQueue: sender connecting");
+        RpcQueueSetting.apply(connectionFactory);
 
         try {
-        	s_sendConnection = s_ConnectionFactory.newConnection();
-            s_sendChannel = s_sendConnection.createChannel();
+        	sendConnection = connectionFactory.newConnection();
+            sendChannel = sendConnection.createChannel();
 
             // create non-durable response queue and set as consumer
-            s_sendChannel.queueDeclare(getResponseQueueName(), false, false, false, ImmutableMap.of("x-ha-policy", "all")); 
-            s_ResponseConsumer = new QueueingConsumer(s_sendChannel);
-            s_sendChannel.basicConsume(getResponseQueueName(), true, s_ResponseConsumer);
-            s_Logger.info("====== RpcQueue: send connected");
+            sendChannel.queueDeclare(getResponseQueueName(), true, false, false, ImmutableMap.of("x-ha-policy", "all")); 
+            responseConsumer = new QueueingConsumer(sendChannel);
+            sendChannel.basicConsume(getResponseQueueName(), true, responseConsumer);
+            logger.info("====== RpcQueue: sender connected");
+            sendConnection.addShutdownListener(s_sendShutdownListener);
         }
         catch (final Exception e) {
-            s_Logger.error("Connect: {}", e);
-            s_sendConnection = null;
-            throw e;
+            logger.error("sendConnect: {}", e.getMessage());
+            asyncSendReconnect(5);
         }
-        s_sendConnection.addShutdownListener(s_ShutdownListener);
     }
 
-    synchronized void receiveConnect() throws IOException {
-        if (s_receiveConnection != null) {
+    synchronized static void receiveConnect() {
+        if (receiveConnection != null && receiveConnection.isOpen()) {
             // already connected
             return;
         }
 
-        s_Logger.info("====== RpcQueue: receiver connecting");
-        s_ConnectionFactory = new ConnectionFactory();
-        RpcQueueSetting.apply(s_ConnectionFactory);
-        s_ConnectionFactory.setConnectionTimeout(2500);
+        logger.info("====== RpcQueue: receiver connecting");
+        RpcQueueSetting.apply(connectionFactory);
 
         try {
-        	s_receiveConnection = s_ConnectionFactory.newConnection();
-        	s_receiveChannel = s_receiveConnection.createChannel();
+        	receiveConnection = connectionFactory.newConnection();
+        	receiveChannel = receiveConnection.createChannel();
 
             // create non-durable request queue and set as consumer
-        	s_receiveChannel.queueDeclare(getRequestQueueName(), false, false, false, ImmutableMap.of("x-ha-policy", "all")); 
-        	s_receiveChannel.basicQos(1);
-            s_RequestConsumer = new QueueingConsumer(s_receiveChannel);
-            s_receiveChannel.basicConsume(getRequestQueueName(), false, s_RequestConsumer);
-            s_Logger.info("====== RpcQueue: receiver connected");
+        	receiveChannel.queueDeclare(getRequestQueueName(), true, false, false, ImmutableMap.of("x-ha-policy", "all")); 
+        	receiveChannel.basicQos(1);
+            requestConsumer = new QueueingConsumer(receiveChannel);
+            receiveChannel.basicConsume(getRequestQueueName(), false, requestConsumer);
+            logger.info("====== RpcQueue: receiver connected");
+            receiveConnection.addShutdownListener(s_receiveShutdownListener);
         }
         catch (final Exception e) {
-            s_Logger.error("Connect: {}", e);
-            s_receiveConnection = null;
-            throw e;
+            logger.error("receiveConnect: {}", e.getMessage());
+            asyncReceiveReconnect(5);
         }
-        s_receiveConnection.addShutdownListener(s_ShutdownListener);
     }
 
-    private String getRequestQueueName() {
-    	return RpcQueueSetting.getQueue(s_QueueName) + "_request_queue";
+	static RpcQueue getQueue(String queue) {
+		return queues.get(queue);
+	}
+	
+    static String getRequestQueueName() {
+    	return RpcQueueSetting.getQueue(queueName) + "_request_queue";
     }
     
-    private String getResponseQueueName() {
-    	return RpcQueueSetting.getQueue(s_QueueName) + "_response_queue";
+    static String getResponseQueueName() {
+    	return RpcQueueSetting.getQueue(queueName) + "_response_queue";
     }
     
-    private byte[] doSend(byte[] data) throws Exception {
+    private static byte[] doSend(byte[] data) throws Exception {
 	    String corrId = java.util.UUID.randomUUID().toString();
 	
 	    BasicProperties props = new BasicProperties
@@ -147,46 +205,61 @@ public class RpcQueue {
 	                                .replyTo(getResponseQueueName())
 	                                .build();
 	
-	    s_sendChannel.basicPublish("", getRequestQueueName(), props, data);
+	    sendChannel.basicPublish("", getRequestQueueName(), props, data);
 	
 	    while (true) {
-	        Delivery delivery = s_ResponseConsumer.nextDelivery();
+	        Delivery delivery = responseConsumer.nextDelivery();
 	        if (delivery.getProperties().getCorrelationId().equals(corrId)) {
 	            return delivery.getBody();
 	        }
 	    }
     }
     
-    private void doReceive(Function<String,String> f) {
-    	listener.execute(new Runnable() {
-    	    public void run() {
-    	    	while (true) {
-    	    		try {
-			    	    QueueingConsumer.Delivery delivery = s_RequestConsumer.nextDelivery();
-		    			processors.submit(new Runnable() {
-							@Override
-							public void run() {
-				    	    	BasicProperties props = delivery.getProperties();
-					    	    BasicProperties replyProps = new BasicProperties
-					    	                                     .Builder()
-					    	                                     .correlationId(props.getCorrelationId())
-					    	                                     .build();
-				
-					    	    String message = f.apply(new String(delivery.getBody()));
-					    	    try {
-					    	    	s_receiveChannel.basicPublish("", props.getReplyTo(), replyProps, message.getBytes());
-					    	    	s_receiveChannel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
-								} catch (IOException e) {
-									// TODO Auto-generated catch block
-									e.printStackTrace();
-								}
-							}
-		    	    	});
-    	    		} catch (Exception e) {
-    	    			// TODO:
-    	    		}
-    	    	}
-    	    }
-    	});
+    private static void doReceive(Function<String,String> f)  {
+    	worker = new ReceiveWorker(requestConsumer, receiveChannel, f);
+    	listener.execute(worker);
+    }
+
+    private static void restartWorker() {
+    	// shutdown worker thread, set new consumer and channel values, then set it running again in a new thread
+        worker.shutdown();
+        worker.setConsumer(requestConsumer);
+        worker.setChannel(receiveChannel);
+        worker.setRunning();
+    	listener.execute(worker);
+        logger.info("====== RpcQueue: worker thread restarted");
+    }
+    
+    private static void asyncSendReconnect(final int delay) {
+    	Scheduler.schedule(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                	shutdownSendConnection();
+                    sendConnect();
+                }
+                catch (final Exception e) {
+                    logger.error("asyncSendConnect: {}", e.getMessage());
+                    asyncSendReconnect(5);
+                }
+            }
+        }, delay, TimeUnit.SECONDS);
+    }
+    
+    private static void asyncReceiveReconnect(final int delay) {
+    	Scheduler.schedule(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                	shutdownReceiveConnection();
+                    receiveConnect();
+                    restartWorker();
+                }
+                catch (final Exception e) {
+                    logger.error("asyncReceiveReconnect: {}", e.getMessage());
+                    asyncReceiveReconnect(5);
+                }
+            }
+        }, delay, TimeUnit.SECONDS);
     }
 }
