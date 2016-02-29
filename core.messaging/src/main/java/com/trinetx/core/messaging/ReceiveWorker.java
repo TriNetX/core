@@ -10,7 +10,9 @@ import org.slf4j.LoggerFactory;
 
 import com.rabbitmq.client.AMQP.BasicProperties;
 import com.rabbitmq.client.Channel;
+import com.rabbitmq.client.ConsumerCancelledException;
 import com.rabbitmq.client.QueueingConsumer;
+import com.rabbitmq.client.ShutdownSignalException;
 
 public class ReceiveWorker implements Runnable {
     private static Logger logger = LoggerFactory.getLogger(RpcQueue.class);
@@ -44,15 +46,10 @@ public class ReceiveWorker implements Runnable {
 
 	void shutdown() {
 		shutdown = true;
-        try {
-			Thread.sleep(DEFAULT_RECONNECT_DELAY + 3000);
-		} catch (InterruptedException e1) {
-		}
-
 	}
 	
-	void setRunning() {
-		shutdown = false; 
+	Function<String,String> getFunction() {
+		return func;
 	}
 	
 	@Override
@@ -79,13 +76,16 @@ public class ReceiveWorker implements Runnable {
 						}
 					}
     	    	});
-    		} catch (Exception e) {
-	            logger.error("ReceiveWorker: {}", e.getMessage());
-	            try {
-					Thread.sleep(DEFAULT_RECONNECT_DELAY);
-				} catch (InterruptedException e1) {
-				}
-    		}
+			} catch (ShutdownSignalException e1) {
+	            logger.error("ReceiveWorker: shutdown signal received from rabbitMQ");
+	            shutdown = true;
+			} catch (ConsumerCancelledException e1) {
+	            logger.error("ReceiveWorker: queue consumer cancelled");
+	            shutdown = true;
+			} catch (InterruptedException e1) {
+	            logger.error("ReceiveWorker: thread is interrupted");
+	            shutdown = true;
+			}
     	}
     	logger.debug("ReceiveWorker thread was gracefully shutdown");
     }

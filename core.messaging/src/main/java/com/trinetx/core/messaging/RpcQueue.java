@@ -103,7 +103,6 @@ public class RpcQueue {
     	if (sendConnection != null) {
     		try {
     			sendConnection.removeShutdownListener(s_sendShutdownListener);
-    			sendChannel.close();
 				sendConnection.close();
 			} catch (IOException e) {
 				// ignore IOException as connection will be recreated
@@ -116,7 +115,6 @@ public class RpcQueue {
     	if (receiveConnection != null) {
     		try {
     			receiveConnection.removeShutdownListener(s_receiveShutdownListener);;
-    			receiveChannel.close();
 				receiveConnection.close();
 			} catch (IOException e) {
 				// ignore IOException as connection will be recreated
@@ -222,11 +220,10 @@ public class RpcQueue {
 
     private static void restartWorker() {
     	// shutdown worker thread, set new consumer and channel values, then set it running again in a new thread
-        worker.shutdown();
-        worker.setConsumer(requestConsumer);
-        worker.setChannel(receiveChannel);
-        worker.setRunning();
+    	ReceiveWorker currentWorker = worker;
+        worker = new ReceiveWorker(requestConsumer, receiveChannel, currentWorker.getFunction());
     	listener.execute(worker);
+    	currentWorker.shutdown();
         logger.info("====== RpcQueue: worker thread restarted");
     }
     
@@ -239,7 +236,7 @@ public class RpcQueue {
                     sendConnect();
                 }
                 catch (final Exception e) {
-                    logger.error("asyncSendConnect: {}", e.getMessage());
+                    logger.error("asyncSendConnect: {}", e);
                     asyncSendReconnect(5);
                 }
             }
@@ -256,7 +253,7 @@ public class RpcQueue {
                     restartWorker();
                 }
                 catch (final Exception e) {
-                    logger.error("asyncReceiveReconnect: {}", e.getMessage());
+                    logger.error("asyncReceiveReconnect: {}", e);
                     asyncReceiveReconnect(5);
                 }
             }
