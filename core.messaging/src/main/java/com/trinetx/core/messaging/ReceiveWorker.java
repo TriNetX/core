@@ -18,7 +18,6 @@ public class ReceiveWorker implements Runnable {
     private static Logger logger = LoggerFactory.getLogger(RpcQueue.class);
     
     private static final int DEFAULT_WORKER_THREADS = 50;
-    private static final int DEFAULT_RECONNECT_DELAY = 5000;
 	private static ExecutorService workers;
 
 	private Function<String,String> func;
@@ -28,7 +27,7 @@ public class ReceiveWorker implements Runnable {
 	private volatile boolean shutdown = false;
 	
 	ReceiveWorker(QueueingConsumer consumer, Channel channel, Function<String,String> func) {
-		this.consumer = consumer;
+    	this.consumer = consumer;
 		this.channel = channel;
 		this.func = func;
 

@@ -74,18 +74,18 @@ public class RpcQueueSetting {
     }
     
     public static Map<String, String> getQueues() {
-    	return s_Setting.Queues;
+        return s_Setting.Queues;
     }
     /*
      * Used only in unit test to perform what normally done by dropwizard
      */
     static void init(String host, int port, String user, String password, Map<String,String> queues) {
-    	s_Setting = new RpcQueueSetting();
-    	s_Setting.Host = host;
-    	s_Setting.Port = port;
-    	s_Setting.User = user;
-    	s_Setting.Password = password;
-    	s_Setting.Queues = queues;
+        s_Setting = new RpcQueueSetting();
+        s_Setting.Host = host;
+        s_Setting.Port = port;
+        s_Setting.User = user;
+        s_Setting.Password = password;
+        s_Setting.Queues = queues;
     }
 
 }
