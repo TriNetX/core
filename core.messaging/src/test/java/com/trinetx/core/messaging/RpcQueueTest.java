@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 
 // support class for creating an embedded QPid AMQP broker
 class EmbeddedAMQPBroker {
@@ -54,9 +55,6 @@ public class RpcQueueTest {
 		RpcQueueSetting.init(
 				"0.0.0.0", 0, QUEUE_USERNAME, QUEUE_PASSWORD,
 				new HashMap<String,String>(){{put(QUEUE_NAME, "{host}_test_queue");}});
-		RpcQueue.init();
-		RpcQueue.sendConnect();
-		RpcQueue.receiveConnect();
 	}
 
 	@AfterClass
@@ -64,19 +62,34 @@ public class RpcQueueTest {
 		RpcQueue.shutdown();
 	}
 
-	@Before
-	public void setUp() throws Exception {
+    @Before
+    public void setUp() throws Exception {
+        // reset queue to be null
+        queue = null;
+    }
+
+    @After
+    public void tearDown() throws Exception {
+    }
+
+    public void initRpcQueue() throws Exception {
+        RpcQueue.init();
+        RpcQueue.sendConnect();
+        RpcQueue.receiveConnect();
 		// create and send up test queue to be a sender and receiver
 		queue = RpcQueue.getQueue(QUEUE_NAME);
 		queue.receive((s)->s); // echo received message
 	}
 
-	@After
-	public void tearDown() throws Exception {
+	@Test
+	public void testSendWithoutInit() throws Exception {
+        queue = RpcQueue.getQueue(QUEUE_NAME);
+        assertNull("RpcQueue returns a queue instance even if init() has not been run yet", queue);
 	}
-
+	
 	@Test
 	public void testSendReceive() throws Exception {
+	    initRpcQueue();
 		String message = "if you give a mouse a cookie";
 		assertEquals("Message received from echo queue does not match one sent",
 				message, new String(queue.send(message.getBytes())));
@@ -84,8 +97,10 @@ public class RpcQueueTest {
 
 	@Test
 	public void testConcurrency() throws Exception {
+	    final int LOOP_COUNT = 10;
+        initRpcQueue();
 		Map<String, String> results = new HashMap<String,String>();
-		for (int i=0;i<1000;i++) {
+		for (int i=0;i<LOOP_COUNT;i++) {
 			final int ii = i;
 	        Thread t = new Thread(new Runnable() {
 	    		String message = "if you give a mouse " + ii + " cookies";
@@ -94,12 +109,16 @@ public class RpcQueueTest {
 					try {
 						results.put(message, new String(queue.send(message.getBytes())));
 					} catch (Exception e) {
+					    // cannot assert here inside a thread, defer to have results assertion later
 					}
 				}
 			});
 	        t.start();
 	        t.join();
 		}
+		
+		// verify results count as expected
+		assertEquals("Result count is not matching the expected value", LOOP_COUNT, results.size());
 		
 		// assert key and value pairs match in result
 		results.forEach((k,v)->assertEquals("Message received from echo queue does not match one sent", k,v));
