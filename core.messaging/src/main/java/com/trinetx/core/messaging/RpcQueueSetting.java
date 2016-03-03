@@ -1,9 +1,9 @@
 package com.trinetx.core.messaging;
 
-import java.util.Map;
-
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.rabbitmq.client.ConnectionFactory;
+
+import java.util.Map;
 
 /**
  * Created by Wai Cheng on 2/25/16.
