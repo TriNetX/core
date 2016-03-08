@@ -22,11 +22,56 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 /**
+ * An implementation of rpc messaging backed by durable, non-exclusive and non-auto-delete AMQP queues.
+ * Queue messages are sent from the senders and placed into the named AMQP queues, with receivers listening 
+ * for queued messages executed in threads from a thread pool to ensure high message processing throughput.
+ * 
+ * Just like any rpc calls, the sender is blocked until a response is returned or the message times out by the
+ * underlying AMQP queue.  No timeout monitor or watchdog is provided in this class so clients or senders
+ * should implement their own timeout mechanism.
+ * 
+ * The RpcQueue implementation would handle both network and AMQP interruptions gracefully without losing queued messages.
+ * Therefore the receivers would not need any explicit exception handling.  However, an Exception would be thrown
+ * upon sending a message durng service interruption and needs to have handled.
+ * 
+ * To use RpcQueue, a "rpcQueueSetting" section must be specified in a config yml file similar to the MsgBusSetting
+ * with the following information:
+ * 
+ *      rpcQueueSetting:
+ *          Host: 10.88.0.4
+ *          # use the default AMQP/RabbitMQ port
+ *          Port: 0
+ *          User: <user>
+ *          Password: <password>
+ *          Queues:
+ *              <queue_var_name>: <AMQP_rpc_queue_name>     #e: termServerQueue: "{host}_local_term_server"
+ * 
+ * 
+ * The RpcQueue must be initialized with init() on the receiver prior to the receive() call, which takes a 
+ * Function block argument used for processing the received messages, otherwise the RpcQueue returned will be null.
+ * 
+ * For example:
+ * 
+ *           RpcQueue.init();
+ *           RpcQueue termServerQueue = RpcQueueHelper.getTermServerQueue();
+ *           termServerQueue.receive(dispatcher.getServiceFunction());
+ *
+ * To send a rpc message, the sender would get the respective queue handle using RpcQueueHelper and invoke the send() method.
+ * The send() method takes a byte[] input and returns another byte[].  It is strongly suggested that additional service
+ * layers and models are added on top od RpcQueue for domain specific usage of RpcQueue.  An example of the sender:
+ * 
+ *          Map<String, String> queryParams = new HashMap<String,String>;
+ *          queryParams.put(MessageTypes.TERM_SERVER.COMMAND, MessageTypes.TERM_SERVER.CATEGORY_AND_NAME_RESOURCE);
+ *          queryParams.put(MessageTypes.TERM_SERVER.TSParam.CATEGORY_AND_NAME_TERMS, new ObjectMapper().writeValueAsString(terms));
+ *          byte[] msgPayload = new ObjectMapper().writeValueAsString(queryParams).getBytes();
+ *          byte[] res = RpcQueueHelper.getTermServerQueue().send(msgPayload);
+ *          result = new String(res, "UTF-8");
+ *
  * Created by Wai Cheng on 2/24/16.
+ * 
  */
 public class RpcQueue {
     private static Logger logger = LoggerFactory.getLogger(RpcQueue.class);;
-    private static final String TERM_SERVER_QUEUE_NAME = "termServerQueue";
       
     private static Map<String, RpcQueue> queues = new HashMap<String, RpcQueue>();
     private static String queueName = "Unnamed_Queue";
@@ -42,10 +87,6 @@ public class RpcQueue {
     private static ExecutorService listener = Executors.newSingleThreadExecutor();
     private static ReceiveWorker worker ;
 
-    public static final RpcQueue getTermServerQueue() {
-        return getQueue(TERM_SERVER_QUEUE_NAME);
-    }
-        
     private static ShutdownListener s_sendShutdownListener = new ShutdownListener() {
         @Override
         public void shutdownCompleted(final ShutdownSignalException cause) {
@@ -66,6 +107,9 @@ public class RpcQueue {
         queueName = name;
     }
 
+    /**
+     * Method for initializing the RpcQueue internals, using RpcQueueSetting.
+     */
     public static void init() {
         RpcQueueSetting.init(Hostname.getMyName());
 
@@ -80,12 +124,24 @@ public class RpcQueue {
         });
     }
 
+    /**
+     * Send a message in byte[] to the RpcQueue, returns the result in anothe byte[].
+     * 
+     * @param data - byte[] of the message to be sent
+     * @return - byte[] of the result
+     * @throws Exception
+     */
     public byte[] send(final byte[] data) throws Exception {
         sendConnect();
         return doSend(data);
     }
 
-    public void receive(Function<String,String> f) throws Exception {
+    /**
+     * Called by the message receiver and specify how the received message are processed.
+     * 
+     * @param f - function to be used by receiver in processing messages
+     */
+    public void receive(Function<String,String> f) {
         receiveConnect();
         doReceive(f);
     }
