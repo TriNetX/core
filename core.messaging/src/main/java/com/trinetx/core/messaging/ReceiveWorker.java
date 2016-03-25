@@ -17,7 +17,7 @@ import java.util.function.Function;
 public class ReceiveWorker implements Runnable {
     private static Logger logger = LoggerFactory.getLogger(RpcQueue.class);
     
-    private static final int DEFAULT_WORKER_THREADS = 50;
+    private static final int DEFAULT_WORKER_THREADS = 32;
 	private static ExecutorService workers;
 
 	private Function<String,String> func;

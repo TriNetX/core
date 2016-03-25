@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>com.trinetx.core</groupId>
 		<artifactId>core</artifactId>
-		<version>1.0.0</version>
+		<version>1.0.1</version>
 	</parent>
 	<artifactId>core.messaging</artifactId>
 	<name>core.messaging</name>
