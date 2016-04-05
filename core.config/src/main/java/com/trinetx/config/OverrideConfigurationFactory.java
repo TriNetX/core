@@ -34,7 +34,7 @@ public class OverrideConfigurationFactory<T> extends ConfigurationFactory<T> {
                 InputStream input = provider.open(checkNotNull(ENVIRONMENTS_PATH));
                 final JsonNode node = mapper.readTree( new YAMLFactory().createParser(input));
                 EnvironmentConfiguration env = mapper.readValue(new TreeTraversingParser(node), EnvironmentConfiguration.class);
-                ServerOverrideSetting overrides = env.getOverrideSetting(System.getProperty("env"));
+                ServiceSetting overrides = env.getOverrideSetting();
                 if(overrides == null) {
                     System.out.println("No overrides was found for environment: " + System.getProperty("env"));
                 } else {

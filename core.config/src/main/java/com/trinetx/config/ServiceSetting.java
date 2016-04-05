@@ -1,10 +1,14 @@
 package com.trinetx.config;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.util.ArrayList;
 import java.util.List;
 
-public class ServerOverrideSetting {
+import io.dropwizard.Configuration;
+
+public class ServiceSetting extends Configuration {
 
     @JsonProperty
     private ElasticSearchSetting elasticSearch;
@@ -16,20 +20,24 @@ public class ServerOverrideSetting {
     private MsgBusSetting msgBusSetting;
 
     @JsonProperty
-    private List<String> loadProviders;
+    private List<String> loadProviders = new ArrayList<String>();
 
+    @JsonIgnore
     public ElasticSearchSetting getElasticSearchSetting() {
         return elasticSearch;
     }
 
+    @JsonIgnore
     public MongoSetting getMongoSetting() {
         return mongo;
     }
 
-    public MsgBusSetting gteMsgBusSetting() {
+    @JsonIgnore
+    public MsgBusSetting getMsgBusSetting() {
         return msgBusSetting;
     }
 
+    @JsonIgnore
     public List<String> getLoadProviders() {
         return loadProviders;
     }
