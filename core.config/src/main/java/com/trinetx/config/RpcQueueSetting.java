@@ -1,27 +1,33 @@
-package com.trinetx.core.messaging;
+package com.trinetx.config;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.rabbitmq.client.ConnectionFactory;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
  * Created by Wai Cheng on 2/25/16.
  */
-public class RpcQueueSetting {
+public class RpcQueueSetting implements Overridable<RpcQueueSetting> {
+    private final String DEFAULT_HOST = "";
+    private final int DEFAULT_PORT = -1;
+    private final String DEFAULT_USER = "";
+    private final String DEFAULT_PASSWORD = "";
+    private final Map<String, String> DEFAULT_QUEUES = new HashMap<String, String>();
 
     private static final String c_HostEnv = "{host}";
 
     private static RpcQueueSetting s_Setting = null;
 
     @JsonProperty
-    private String Host;
+    private String Host = DEFAULT_HOST;
     @JsonProperty
-    private int    Port;
+    private int    Port = DEFAULT_PORT;
     @JsonProperty
-    private String User;
+    private String User = DEFAULT_USER;
     @JsonProperty
-    private String Password;
+    private String Password = DEFAULT_PASSWORD;
 
     /**
      * { QueueId, QueueName } pair
@@ -33,7 +39,7 @@ public class RpcQueueSetting {
      * staging deployment, etc.
      */
     @JsonProperty
-    private Map<String, String> Queues;
+    private Map<String, String> Queues = DEFAULT_QUEUES;
 
     private String              MyHost;
 
@@ -79,7 +85,7 @@ public class RpcQueueSetting {
     /*
      * Used only in unit test to perform what normally done by dropwizard
      */
-    static void init(String host, int port, String user, String password, Map<String,String> queues) {
+    public static void init(String host, int port, String user, String password, Map<String,String> queues) {
         s_Setting = new RpcQueueSetting();
         s_Setting.Host = host;
         s_Setting.Port = port;
@@ -88,4 +94,23 @@ public class RpcQueueSetting {
         s_Setting.Queues = queues;
     }
 
+    @Override
+    public void override(Overridable<RpcQueueSetting> o) {
+        RpcQueueSetting s = (RpcQueueSetting) o;
+    
+        if (!DEFAULT_HOST.equals(s.Host)) {
+            this.Host = s.Host;
+        }
+        if (DEFAULT_PORT != s.Port) {
+            this.Port = s.Port;
+        }
+        if (!DEFAULT_USER.equals(s.User)) {
+            this.User = s.User;
+        }
+        if (!DEFAULT_PASSWORD.equals(s.Password)) {
+            this.Password = s.Password;
+        }
+        // even queues are not override, then they would just be empty maps so no harm is calling putAll()
+        this.Queues.putAll(s.Queues);
+    }
 }

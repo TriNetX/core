@@ -32,5 +32,11 @@
 		    <version>1.5.2.RELEASE</version>
 			<scope>test</scope>
 		</dependency>
+        <!-- Trinetx core.config library -->
+        <dependency>
+            <groupId>com.trinetx.core</groupId>
+            <artifactId>core.config</artifactId>
+            <version>1.0.0</version>
+        </dependency>
 	</dependencies>
 </project>

@@ -41,17 +41,28 @@ public class OverrideConfigurationFactory<T> extends ConfigurationFactory<T> {
                         // found overridden fields, attempt to read and apply override values if they exist
                         JsonNode node = root.get(f.getName());
                         if (node != null) {
-                            // only handles List and Overridable field classes
-                            if(List.class.isAssignableFrom(f.getType()))
+                            // force private fields to be accessible and apply overrides 
+                            f.setAccessible(true);  
+                            // only handles Boolean, Integer, String, List and Overridable field classes
+                            if (f.getType().isAssignableFrom(Boolean.class)) {
+                                Boolean overrides = (Boolean) mapper.readValue(new TreeTraversingParser(node), Boolean.class);
+                                f.setAccessible(true);
+                                f.set(config, overrides);
+                            } else if (f.getType().isAssignableFrom(Integer.class)) {
+                                Integer overrides = (Integer) mapper.readValue(new TreeTraversingParser(node), Integer.class);
+                                f.setAccessible(true);
+                                f.set(config, overrides);
+                            } else if (f.getType().isAssignableFrom(String.class)) {
+                                String overrides = (String) mapper.readValue(new TreeTraversingParser(node), String.class);
+                                f.setAccessible(true);
+                                f.set(config, overrides);
+                            } else if (f.getType().isAssignableFrom(List.class))
                             {
                                 List overrides = (List) mapper.readValue(new TreeTraversingParser(node), ArrayList.class);
-                                // force private fields to be accessible and apply overrides 
                                 f.setAccessible(true);
                                 f.set(config, overrides);
                             } else {
                                 Overridable overrides = (Overridable) mapper.readValue(new TreeTraversingParser(node), f.getType().newInstance().getClass());
-                                // force private fields to be accessible and apply overrides 
-                                f.setAccessible(true);  
                                 Overridable settings = (Overridable) f.get(config);
                                 settings.override(overrides);
                             }

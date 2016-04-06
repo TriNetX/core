@@ -9,6 +9,7 @@ import com.rabbitmq.client.QueueingConsumer;
 import com.rabbitmq.client.QueueingConsumer.Delivery;
 import com.rabbitmq.client.ShutdownListener;
 import com.rabbitmq.client.ShutdownSignalException;
+import com.trinetx.config.RpcQueueSetting;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
