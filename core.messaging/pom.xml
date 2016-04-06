@@ -8,6 +8,7 @@
 		<version>1.0.0</version>
 	</parent>
 	<artifactId>core.messaging</artifactId>
+    <version>1.0.1</version>
 	<name>core.messaging</name>
 	<url>http://maven.apache.org</url>
 	<properties>
