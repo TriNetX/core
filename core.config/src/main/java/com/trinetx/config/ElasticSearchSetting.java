@@ -38,12 +38,8 @@ public class ElasticSearchSetting implements Overridable<ElasticSearchSetting> {
     }
 
     @Override
-    public void override(ElasticSearchSetting s) {
-        // no overrides
-        if (s == null) {
-            return;
-        }
-        
+    public void override(Overridable<ElasticSearchSetting> o) {
+        ElasticSearchSetting s = (ElasticSearchSetting) o;
         if (!DEFAULT_CLUSTER_NAME.equals(s.clusterName)) {
             this.clusterName = s.clusterName;
         }

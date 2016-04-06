@@ -10,7 +10,7 @@ import java.util.Map;
 /**
  * Created by yongdengchen on 7/2/14.
  */
-public class MsgBusSetting implements Overridable<MsgBusSetting>{
+public class MsgBusSetting implements Overridable<MsgBusSetting> {
     private final String DEFAULT_HOST = "";
     private final int DEFAULT_PORT = -1;
     private final String DEFAULT_USER = "";
@@ -101,12 +101,9 @@ public class MsgBusSetting implements Overridable<MsgBusSetting>{
     }
 
     @Override
-    public void override(MsgBusSetting s) {
-        // no overrides
-        if (s == null) {
-            return;
-        }
-        
+    public void override(Overridable<MsgBusSetting> o) {
+        MsgBusSetting s = (MsgBusSetting) o;
+    
         if (!DEFAULT_HOST.equals(s.Host)) {
             this.Host = s.Host;
         }

@@ -10,7 +10,7 @@ import javax.validation.constraints.NotNull;
  *
  * Created by yongdengchen on 8/28/14. Moving it from Term Server to Pubsub.
  */
-public class MongoSetting implements Overridable<MongoSetting>{
+public class MongoSetting implements Overridable<MongoSetting> {
     private final String DEFAULT_URL = "";
 
     @NotNull
@@ -23,12 +23,8 @@ public class MongoSetting implements Overridable<MongoSetting>{
     }
 
     @Override
-    public void override(MongoSetting s) {
-        // no overrides
-        if (s == null) {
-            return;
-        }
-        
+    public void override(Overridable<MongoSetting> o) {
+        MongoSetting s = (MongoSetting) o;
         if (!DEFAULT_URL.equals(s.URL)) {
             this.URL = s.URL;
         }
