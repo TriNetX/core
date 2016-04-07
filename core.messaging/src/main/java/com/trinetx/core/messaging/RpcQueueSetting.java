@@ -11,10 +11,10 @@ import java.util.Map;
  * Created by Wai Cheng on 2/25/16.
  */
 public class RpcQueueSetting implements Overridable<RpcQueueSetting> {
-    private final String DEFAULT_HOST = "";
-    private final int DEFAULT_PORT = -1;
-    private final String DEFAULT_USER = "";
-    private final String DEFAULT_PASSWORD = "";
+    private final static String DEFAULT_HOST = "";
+    private final static int DEFAULT_PORT = -1;
+    private final static String DEFAULT_USER = "";
+    private final static String DEFAULT_PASSWORD = "";
     private final Map<String, String> DEFAULT_QUEUES = new HashMap<String, String>();
 
     private static final String c_HostEnv = "{host}";
@@ -43,6 +43,15 @@ public class RpcQueueSetting implements Overridable<RpcQueueSetting> {
     private Map<String, String> Queues = DEFAULT_QUEUES;
 
     private String              MyHost;
+
+    public RpcQueueSetting() {
+        /**
+         * Hack -- only one RpcQueueSetting for each application
+         */
+         if (s_Setting == null) {
+             s_Setting = this;
+         }
+    }
 
     private static void resolveEnv(final Map<String, String> map) {
         for (final Map.Entry<String, String> pair : map.entrySet()) {
