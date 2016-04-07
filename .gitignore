@@ -9,6 +9,7 @@
 target/
 
 # Eclipse
+core.messaging/.classpath
 .project
 .settings
 
