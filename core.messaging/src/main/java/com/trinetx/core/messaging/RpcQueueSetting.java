@@ -1,26 +1,25 @@
-package com.trinetx.config;
+package com.trinetx.core.messaging;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.rabbitmq.client.ConnectionFactory;
+import com.trinetx.config.Overridable;
 
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Created by yongdengchen on 7/2/14.
+ * Created by Wai Cheng on 2/25/16.
  */
-public class MsgBusSetting implements Overridable<MsgBusSetting> {
+public class RpcQueueSetting implements Overridable<RpcQueueSetting> {
     private final String DEFAULT_HOST = "";
     private final int DEFAULT_PORT = -1;
     private final String DEFAULT_USER = "";
     private final String DEFAULT_PASSWORD = "";
-    private final Map<String, String> DEFAULT_EXCHANGES = new HashMap<String, String>();
     private final Map<String, String> DEFAULT_QUEUES = new HashMap<String, String>();
 
     private static final String c_HostEnv = "{host}";
 
-    private static MsgBusSetting s_Setting = null;
+    private static RpcQueueSetting s_Setting = null;
 
     @JsonProperty
     private String Host = DEFAULT_HOST;
@@ -30,18 +29,6 @@ public class MsgBusSetting implements Overridable<MsgBusSetting> {
     private String User = DEFAULT_USER;
     @JsonProperty
     private String Password = DEFAULT_PASSWORD;
-
-    /**
-     * { ExchangeID, ExchangeName } pair
-     *
-     * ExchangeName may contain '{host}' placement holder to be replaced with the actual
-     * hostname of the machine -- so, 2 dev sessions from 2 people do not interfere with each other
-     *
-     * ExchangeName shall be deployment mode specific -- so, test deployment does not interfere with
-     * staging deployment, etc.
-     */
-    @JsonProperty
-    private Map<String, String> Exchanges = DEFAULT_EXCHANGES;
 
     /**
      * { QueueId, QueueName } pair
@@ -57,13 +44,6 @@ public class MsgBusSetting implements Overridable<MsgBusSetting> {
 
     private String              MyHost;
 
-    MsgBusSetting() {
-        /**
-         * Hack -- only one MsgBusSetting for each application
-         */
-        s_Setting = this;
-    }
-
     private static void resolveEnv(final Map<String, String> map) {
         for (final Map.Entry<String, String> pair : map.entrySet()) {
             String val = pair.getValue();
@@ -76,7 +56,6 @@ public class MsgBusSetting implements Overridable<MsgBusSetting> {
 
     public static void init(String hostname) {
         s_Setting.MyHost = hostname;
-        resolveEnv(s_Setting.Exchanges);
         resolveEnv(s_Setting.Queues);
     }
 
@@ -88,21 +67,30 @@ public class MsgBusSetting implements Overridable<MsgBusSetting> {
         factory.setPassword(s_Setting.Password);
     }
 
-    @JsonIgnore
-    public static String getExchange(String exchangeId) {
-        return exchangeId.isEmpty() ? exchangeId : s_Setting.Exchanges.get(exchangeId);
-    }
-
-    @JsonIgnore
     public static String getQueue(String queueId) {
         if (s_Setting == null || s_Setting.Queues == null)
             return null;
         return queueId.isEmpty() ? queueId : s_Setting.Queues.get(queueId);
     }
+    
+    public static Map<String, String> getQueues() {
+        return s_Setting.Queues;
+    }
+    /*
+     * Used only in unit test to perform what normally done by dropwizard
+     */
+    public static void init(String host, int port, String user, String password, Map<String,String> queues) {
+        s_Setting = new RpcQueueSetting();
+        s_Setting.Host = host;
+        s_Setting.Port = port;
+        s_Setting.User = user;
+        s_Setting.Password = password;
+        s_Setting.Queues = queues;
+    }
 
     @Override
-    public void override(Overridable<MsgBusSetting> o) {
-        MsgBusSetting s = (MsgBusSetting) o;
+    public void override(Overridable<RpcQueueSetting> o) {
+        RpcQueueSetting s = (RpcQueueSetting) o;
     
         if (!DEFAULT_HOST.equals(s.Host)) {
             this.Host = s.Host;
@@ -116,8 +104,7 @@ public class MsgBusSetting implements Overridable<MsgBusSetting> {
         if (!DEFAULT_PASSWORD.equals(s.Password)) {
             this.Password = s.Password;
         }
-        // even exchanges and queues are not override, then they would just be empty maps so no harm is calling putAll()
-        this.Exchanges.putAll(s.Exchanges);
+        // even queues are not override, then they would just be empty maps so no harm is calling putAll()
         this.Queues.putAll(s.Queues);
     }
 }

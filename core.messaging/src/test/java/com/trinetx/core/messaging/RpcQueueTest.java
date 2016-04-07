@@ -1,7 +1,6 @@
 package com.trinetx.core.messaging;
 
 import com.google.common.io.Files;
-import com.trinetx.config.RpcQueueSetting;
 
 import org.apache.qpid.server.Broker;
 import org.apache.qpid.server.BrokerOptions;

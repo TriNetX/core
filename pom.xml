@@ -15,7 +15,6 @@
     </repositories>
     
     <modules>
-       <module>core.config</module>
        <module>core.messaging</module>
     </modules>
 
